@@ -76,3 +76,24 @@ La carpeta `docs/` centraliza toda la documentación técnica, incluyendo la doc
 
 Los beneficios de esta estructura son principalmente la modularidad al facilitar el mantenimiento y reutilización del código, además de ser escalable ya que se pueden agregar neuvos módulos sin afectar a los existentes.
 
+## Desarrollo de Scripts de Automatización
+
+Como parte de el siguiente issue, también creé la estructura básica de los scripts de python que nos van a ayudar con la automatización del proyecto. Por ahora solo implementé los métodos básicos y la estructura, pero quiero explicar qué van a hacer estos scripts cuando se termine de desarrollar.
+
+### generar_diagrama.py
+
+Este script va a automatizar algo que normalmente haríamos a mano. La idea es que lea los archivos `terraform.tfstate` que se generan en cada módulo cuando corremos terraform, y a partir de esa información cree un diagrama visual de nuestra infraestructura.
+
+Lo que va a hacer es revisar cada módulo (compute, network, security, etc.) y extraer las dependencias entre los recursos. Por ejemplo, si un security group depende de una VPC, o si una instancia EC2 usa cierto security group. Con toda esa información va a generar un archivo `.dot` (que es el formato que usa Graphviz) y al final vamos a tener un diagrama que muestre cómo están conectados todos nuestros recursos.
+
+Por ahora solo tengo la estructura básica con los métodos `generate_dot()` y `main()`, pero la idea es que este script nos ahorre mucho tiempo manual creando diagramas cada vez que cambiemos la infraestructura.
+
+### terraform_docs.py
+
+Este otro script va a ser súper útil para mantener la documentación siempre actualizada. La idea es que recorra automáticamente cada módulo de terraform y genere documentación en Markdown de manera consistente.
+
+Lo que va a hacer es leer los tres archivos principales de cada módulo: `variables.tf`, `outputs.tf` y `main.tf`. Del archivo de variables va a extraer qué parámetros acepta cada módulo, qué tipo de datos son, si tienen valores por defecto, y sus descripciones. De outputs va a sacar qué valores devuelve el módulo. Y de main.tf va a listar todos los recursos que crea.
+
+Con toda esa información va a generar archivos Markdown organizados en la carpeta docs, uno por cada módulo. Así siempre vamos a tener documentación actualizada sin tener que escribirla manualmente cada vez que hagamos cambios.
+
+Estos scripts van a hacer que el proyecto sea mucho más mantenible a largo plazo, porque la documentación y los diagramas se van a actualizar solos. Por ahora implementé solo la estructura básica con comentarios TODO donde va a ir la lógica principal, así que es un buen punto de partida para los siguientes sprints.
