@@ -1,0 +1,915 @@
+From 4102b6896102e59f9a1390c459bb3be7adcfb16f Mon Sep 17 00:00:00 2001
+From: melissa <melissa.iman.n@uni.pe>
+Date: Tue, 17 Jun 2025 12:56:43 -0500
+Subject: [PATCH 01/10] feat(diagram): add module colors and dependency labels
+ to DOT generation
+
+---
+ docs/diagrama_red.dot       | 11 +++++++++++
+ scripts/generar_diagrama.py | 29 ++++++++++++++++++++++++++---
+ 2 files changed, 37 insertions(+), 3 deletions(-)
+ create mode 100644 docs/diagrama_red.dot
+
+diff --git a/docs/diagrama_red.dot b/docs/diagrama_red.dot
+new file mode 100644
+index 0000000..5caed55
+--- /dev/null
++++ b/docs/diagrama_red.dot
+@@ -0,0 +1,11 @@
++digraph G {
++rankdir=LR
++    "null_resource.config_almacenamiento" [label="null_resource.config_almacenamiento", color=orange]
++    "terraform_remote_state.network" [label="terraform_remote_state.network", color=red]
++    "null_resource.config_seguridad" [label="null_resource.config_seguridad", color=red]
++    "terraform_remote_state.network" -> "null_resource.config_seguridad" [label="depends_on"]
++    "null_resource.config_logging" [label="null_resource.config_logging", color=purple]
++    "null_resource.config_monitoreo" [label="null_resource.config_monitoreo", color=yellow]
++    "null_resource.config_compute" [label="null_resource.config_compute", color=green]
++    "null_resource.red_config" [label="null_resource.red_config", color=blue]
++}
+\ No newline at end of file
+diff --git a/scripts/generar_diagrama.py b/scripts/generar_diagrama.py
+index dfc1c48..51986a9 100755
+--- a/scripts/generar_diagrama.py
++++ b/scripts/generar_diagrama.py
+@@ -2,15 +2,30 @@
+ """
+ scripts/generar_diagrama.py
+ - Genera docs/diagrama_red.dot a partir de los .tfstate en cada módulo
++- Colorea nodos según tipo de módulo y etiqueta dependencias
+ """
+ import os
+ import json
+ import re
+ 
++def get_module_color(module_name):
++    """
++    Retorna el color DOT apropiado para cada tipo de módulo.
++    """
++    color_map = {
++        'network': 'blue',
++        'compute': 'green', 
++        'storage': 'orange',
++        'security': 'red',
++        'logging': 'purple',
++        'monitoring': 'yellow'
++    }
++    return color_map.get(module_name, 'gray')
++
+ def generate_dot():
+     """
+     Lee terraform.tfstate de cada módulo (iac/<módulo>/terraform.tfstate)
+-    y extrae dependencies para formar un grafo DOT.
++    y extrae dependencies para formar un grafo DOT con colores y etiquetas.
+     """
+     lineas=["digraph G {","rankdir=LR"]
+ 
+@@ -21,6 +36,8 @@ def generate_dot():
+         lineas.append("}")
+         return "\n".join(lineas)
+ 
++    recurso_a_modulo = {}
++
+     for modulo in os.listdir(root):
+         modulo_dir=os.path.join(root, modulo)
+         tfstate=os.path.join(modulo_dir, "terraform.tfstate")
+@@ -34,11 +51,16 @@ def generate_dot():
+         except (IOError, json.JSONDecodeError):
+             continue
+ 
++        color = get_module_color(modulo)
++
+         for recurso in data.get('resources', []):
+             type= recurso.get('type')
+             name = recurso.get('name')
+             id_recurso = f"{type}.{name}"
+-            lineas.append(f'    "{id_recurso}" [label="{type}.{name}"]')
++            
++            recurso_a_modulo[id_recurso] = modulo
++            
++            lineas.append(f'    "{id_recurso}" [label="{type}.{name}", color={color}]')
+ 
+             for instance in recurso.get('instances', []):
+                 for dep in instance.get('dependencies', []):
+@@ -46,7 +68,8 @@ def generate_dot():
+                     if not match:
+                         continue
+                     dep_id = match.group(1)
+-                    lineas.append(f'    "{dep_id}" -> "{id_recurso}"')
++                    
++                    lineas.append(f'    "{dep_id}" -> "{id_recurso}" [label="depends_on"]')
+ 
+     lineas.append("}")
+     return "\n".join(lineas)
+-- 
+2.49.0
+
+
+From 83e8f0ddf5928736ce03ad100d4e86e7dcd521ad Mon Sep 17 00:00:00 2001
+From: melissa <melissa.iman.n@uni.pe>
+Date: Tue, 17 Jun 2025 14:47:35 -0500
+Subject: [PATCH 02/10] refactor(diagram): implement cyclic color assignment
+ for module scalability
+
+---
+ docs/diagrama_red.dot       | 14 +++++------
+ scripts/generar_diagrama.py | 47 ++++++++++++++++++++++++-------------
+ 2 files changed, 38 insertions(+), 23 deletions(-)
+
+diff --git a/docs/diagrama_red.dot b/docs/diagrama_red.dot
+index 5caed55..b0eb13a 100644
+--- a/docs/diagrama_red.dot
++++ b/docs/diagrama_red.dot
+@@ -1,11 +1,11 @@
+ digraph G {
+ rankdir=LR
+-    "null_resource.config_almacenamiento" [label="null_resource.config_almacenamiento", color=orange]
+-    "terraform_remote_state.network" [label="terraform_remote_state.network", color=red]
+-    "null_resource.config_seguridad" [label="null_resource.config_seguridad", color=red]
++    "null_resource.config_almacenamiento" [label="null_resource.config_almacenamiento", color=yellow]
++    "terraform_remote_state.network" [label="terraform_remote_state.network", color=purple]
++    "null_resource.config_seguridad" [label="null_resource.config_seguridad", color=purple]
+     "terraform_remote_state.network" -> "null_resource.config_seguridad" [label="depends_on"]
+-    "null_resource.config_logging" [label="null_resource.config_logging", color=purple]
+-    "null_resource.config_monitoreo" [label="null_resource.config_monitoreo", color=yellow]
+-    "null_resource.config_compute" [label="null_resource.config_compute", color=green]
+-    "null_resource.red_config" [label="null_resource.red_config", color=blue]
++    "null_resource.config_logging" [label="null_resource.config_logging", color=green]
++    "null_resource.config_monitoreo" [label="null_resource.config_monitoreo", color=orange]
++    "null_resource.config_compute" [label="null_resource.config_compute", color=blue]
++    "null_resource.red_config" [label="null_resource.red_config", color=red]
+ }
+\ No newline at end of file
+diff --git a/scripts/generar_diagrama.py b/scripts/generar_diagrama.py
+index 51986a9..b057f7b 100755
+--- a/scripts/generar_diagrama.py
++++ b/scripts/generar_diagrama.py
+@@ -8,19 +8,27 @@ import os
+ import json
+ import re
+ 
+-def get_module_color(module_name):
++def get_available_colors():
+     """
+-    Retorna el color DOT apropiado para cada tipo de módulo.
++    Retorna lista de colores disponibles para asignación a módulos.
++
++    """
++    return ['blue', 'green', 'orange', 'red', 'purple', 'yellow', 
++            'cyan', 'magenta', 'brown', 'pink', 'gray', 'darkgreen']
++
++def assign_module_colors(modulos):
++    """
++    Asigna colores de manera cíclica a una lista de módulos.
++    
+     """
+-    color_map = {
+-        'network': 'blue',
+-        'compute': 'green', 
+-        'storage': 'orange',
+-        'security': 'red',
+-        'logging': 'purple',
+-        'monitoring': 'yellow'
+-    }
+-    return color_map.get(module_name, 'gray')
++    colores_disponibles = get_available_colors()
++    mapeo_colores = {}
++    
++    for index, modulo in enumerate(sorted(modulos)):
++        color_index = index % len(colores_disponibles)
++        mapeo_colores[modulo] = colores_disponibles[color_index]
++    
++    return mapeo_colores
+ 
+ def generate_dot():
+     """
+@@ -36,22 +44,29 @@ def generate_dot():
+         lineas.append("}")
+         return "\n".join(lineas)
+ 
++    # Identificar módulos disponibles
++    modulos_disponibles = []
++    for item in os.listdir(root):
++        modulo_dir = os.path.join(root, item)
++        tfstate = os.path.join(modulo_dir, "terraform.tfstate")
++        if os.path.isfile(tfstate):
++            modulos_disponibles.append(item)
++    
++    # Asignar colores
++    mapeo_colores = assign_module_colors(modulos_disponibles)
+     recurso_a_modulo = {}
+ 
+-    for modulo in os.listdir(root):
++    for modulo in modulos_disponibles:
+         modulo_dir=os.path.join(root, modulo)
+         tfstate=os.path.join(modulo_dir, "terraform.tfstate")
+ 
+-        if not os.path.isfile(tfstate):
+-            continue
+-
+         try:
+             with open(tfstate, 'r', encoding='utf-8') as f:
+                 data = json.load(f)
+         except (IOError, json.JSONDecodeError):
+             continue
+ 
+-        color = get_module_color(modulo)
++        color = mapeo_colores[modulo]
+ 
+         for recurso in data.get('resources', []):
+             type= recurso.get('type')
+-- 
+2.49.0
+
+
+From 6f3eedb003fb606752af7aac99a6077370308148 Mon Sep 17 00:00:00 2001
+From: bxcowo <a.flores.a@uni.pe>
+Date: Tue, 17 Jun 2025 17:01:23 -0500
+Subject: [PATCH 03/10] edit(iac): add readme.md files in iac modules
+
+README.md files were added to each IaC module to add original
+descriptions to each module and a sample bash script on how to execute the module.
+---
+ iac/compute/README.md    | 12 ++++++++++++
+ iac/logging/README.md    | 13 +++++++++++++
+ iac/monitoring/README.md | 13 +++++++++++++
+ iac/network/README.md    | 13 +++++++++++++
+ iac/security/README.md   | 13 +++++++++++++
+ iac/storage/README.md    | 13 +++++++++++++
+ 6 files changed, 77 insertions(+)
+ create mode 100644 iac/compute/README.md
+ create mode 100644 iac/logging/README.md
+ create mode 100644 iac/monitoring/README.md
+ create mode 100644 iac/network/README.md
+ create mode 100644 iac/security/README.md
+ create mode 100644 iac/storage/README.md
+
+diff --git a/iac/compute/README.md b/iac/compute/README.md
+new file mode 100644
+index 0000000..63f3636
+--- /dev/null
++++ b/iac/compute/README.md
+@@ -0,0 +1,12 @@
++## Descripción
++
++El siguiente módulo de Terraform se encarga de gestionar la configuración de recursos computacionales en la infraestructura como código. Se encarga de establecer y configurar instancias computacionales según el tipo especificado, distribuyéndolas a través de múltiples subredes para garantizar alta disponibilidad y redundancia. El módulo permite definir el tamaño de las instancias (pequeño, mediano, grande) y especificar las subredes donde serán desplegados los recursos. Utiliza un enfoque basado en hash para generar identificadores únicos y asegurar la consistencia en el despliegue. Es ideal para entornos que requieren escalabilidad y distribución geográfica de cargas de trabajo computacionales.
++
++## Ejemplo de uso
++
++```bash
++#!/bin/bash
++terraform apply -auto-approve \
++    -var 'tipo_instancia=mediano' \
++    -var 'ids_subred=["123", "456", "789"]'
++```
+diff --git a/iac/logging/README.md b/iac/logging/README.md
+new file mode 100644
+index 0000000..5207537
+--- /dev/null
++++ b/iac/logging/README.md
+@@ -0,0 +1,13 @@
++## Descripción
++
++A continuación se presenta un módulo de Terraform que gestiona la configuración completa del sistema de logging para la infraestructura. Se encarga de establecer políticas de retención de logs, definir niveles mínimos de registro y habilitar capacidades de auditoría según los requerimientos de cumplimiento. El módulo configura automáticamente grupos de logs diferenciados (aplicación, sistema, auditoría) basándose en las configuraciones establecidas. Calcula costos estimados de almacenamiento y proporciona flexibilidad para ajustar la retención de logs desde 1 hasta 365 días. Es fundamental para el monitoreo, debugging y cumplimiento de normativas en entornos productivos que requieren trazabilidad completa de eventos.
++
++## Ejemplo de uso
++
++```bash
++#!/bin/bash
++terraform apply -auto-approve \
++    -var 'dias_retencion_logs=60' \
++    -var 'nivel_log=WARN' \
++    -var 'permite_auditoria_logs=true'
++```
+diff --git a/iac/monitoring/README.md b/iac/monitoring/README.md
+new file mode 100644
+index 0000000..472fc48
+--- /dev/null
++++ b/iac/monitoring/README.md
+@@ -0,0 +1,13 @@
++## Descripción
++
++El presente módulo de Terraform administra la configuración integral del sistema de monitoreo y alertas para la infraestructura. Se encarga de habilitar el monitoreo detallado de recursos críticos incluyendo CPU, memoria, almacenamiento y red, proporcionando alertas automáticas a través de email cuando se detectan anomalías. El módulo permite configurar períodos de retención de métricas flexibles entre 7 y 730 días, calculando automáticamente los costos asociados al monitoreo. Incluye validación de direcciones de email para garantizar la entrega correcta de notificaciones. Es esencial para mantener la salud operacional, detectar problemas proactivamente y asegurar la disponibilidad continua de servicios en entornos productivos.
++
++## Ejemplo de uso
++
++```bash
++#!/bin/bash
++terraform apply -auto-approve \
++    -var 'permite_monitoreo=true' \
++    -var 'email_alertas=dummy@email.com' \
++    -var 'dias_retencion_metricas=180'
++```
+diff --git a/iac/network/README.md b/iac/network/README.md
+new file mode 100644
+index 0000000..3a5f713
+--- /dev/null
++++ b/iac/network/README.md
+@@ -0,0 +1,13 @@
++## Descripción
++
++El módulo descrito a continuación gestiona la configuración completa de la infraestructura de red en la nube. Se encarga de crear y configurar una VPC (Virtual Private Cloud) con su bloque CIDR correspondiente, estableciendo automáticamente subredes públicas y privadas distribuidas across múltiples zonas de disponibilidad para garantizar alta disponibilidad y redundancia. El módulo calcula dinámicamente la segmentación de subredes basándose en el número de zonas disponibles, creando una arquitectura de red escalable y bien distribuida. Incluye soporte para NAT Gateway que permite conectividad a internet desde subredes privadas. Es fundamental para establecer una base de red sólida y segura para toda la infraestructura.
++
++## Ejemplo de uso
++
++```bash
++#!/bin/bash
++terraform apply -auto-approve \
++    -var 'vpc_cidr=10.2.0.0/16' \
++    -var 'zonas_disponibilidad=["USA", "Canada", "Mexico"]' \
++    -var 'permitir_nat_gateway=true'
++```
+diff --git a/iac/security/README.md b/iac/security/README.md
+new file mode 100644
+index 0000000..7080dc5
+--- /dev/null
++++ b/iac/security/README.md
+@@ -0,0 +1,13 @@
++## Descripción
++
++Este módulo presenta una implementación completa de Terraform para administrar la configuración integral de seguridad en toda la infraestructura. Se encarga de establecer políticas de seguridad diferenciadas por niveles (básico, estándar, alto, crítico), cada uno con controles específicos como autenticación multifactor, encriptación, logging de accesos y detección de intrusiones. El módulo gestiona la habilitación de encriptación para todos los recursos, define bloques CIDR permitidos para controlar el acceso de red, y implementa automáticamente las políticas de seguridad correspondientes al nivel seleccionado. Incluye detección de configuraciones de acceso abierto y genera identificadores únicos para garantizar la consistencia. Es esencial para mantener la postura de seguridad y cumplimiento normativo en entornos productivos.
++
++## Ejemplo de uso
++
++```bash
++#!/bin/bash
++terraform apply -auto-approve \
++    -var 'permite_encriptacion=true' \
++    -var 'bloques_CIDR_permitidos=["10.0.0.0/16", "172.16.0.0/12"]' \
++    -var 'nivel_seguridad=alto'
++```
+diff --git a/iac/storage/README.md b/iac/storage/README.md
+new file mode 100644
+index 0000000..ee7a7ea
+--- /dev/null
++++ b/iac/storage/README.md
+@@ -0,0 +1,13 @@
++## Descripción
++
++El siguiente módulo de Terraform gestiona la configuración completa del sistema de almacenamiento para la infraestructura. Se encarga de establecer diferentes niveles de almacenamiento con características específicas de rendimiento, costo y IOPS según las necesidades del proyecto. El módulo administra estrategias de backup diferenciadas (básica e integral) basándose en los períodos de retención configurados, y proporciona capacidades de versionado para objetos almacenados. Define automáticamente tiers de almacenamiento con diferentes perfiles de desempeño y costo, permitiendo optimizar tanto la performance como los gastos operacionales. Es fundamental para garantizar la persistencia, disponibilidad y protección de datos críticos en entornos productivos que requieren diferentes niveles de servicio de almacenamiento.
++
++## Ejemplo de uso
++
++```bash
++#!/bin/bash
++terraform apply -auto-approve \
++    -var 'tipo_almacenamiento=uio' \
++    -var 'dias_backup=14' \
++    -var 'permite_versionado=true'
++```
+-- 
+2.49.0
+
+
+From 23eec40dc1a7a7f07b086f58d840d60e861ff12a Mon Sep 17 00:00:00 2001
+From: bxcowo <a.flores.a@uni.pe>
+Date: Tue, 17 Jun 2025 17:06:20 -0500
+Subject: [PATCH 04/10] edit(template): Edit template to match new structure
+ with bash script
+
+---
+ scripts/templates/template.md | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/scripts/templates/template.md b/scripts/templates/template.md
+index 98858b5..f6b49d1 100644
+--- a/scripts/templates/template.md
++++ b/scripts/templates/template.md
+@@ -14,3 +14,6 @@ $filas_outputs
+ 
+ ## Lista de recursos:
+ $filas_recursos
++
++## Ejemplo de uso:
++$ejemplo_bash
+-- 
+2.49.0
+
+
+From 524490a535dc933d980c8a864547c9f8a4416217 Mon Sep 17 00:00:00 2001
+From: bxcowo <a.flores.a@uni.pe>
+Date: Tue, 17 Jun 2025 17:13:41 -0500
+Subject: [PATCH 05/10] feat(script): add parse_readme to parse readme files
+
+The parse_readme function in terraform_docs.py is a function that allows
+extracting information about the markdowns content in each IaC module and return it in a dictionary.
+---
+ scripts/terraform_docs.py | 36 ++++++++++++++++++++++++++++++++++++
+ 1 file changed, 36 insertions(+)
+
+diff --git a/scripts/terraform_docs.py b/scripts/terraform_docs.py
+index 8a93c6a..a9a09e4 100755
+--- a/scripts/terraform_docs.py
++++ b/scripts/terraform_docs.py
+@@ -185,6 +185,42 @@ def parse_resources(modulo_path):
+         print(f"Error leyendo {main_tf_path}: {e}")
+         return []
+ 
++def parse_readme(modulo_path):
++    """
++    Lee el archivo README.md definido para cada módulo IaC
++    Retorna {'nombre_secciones': "<Contenido>", ...}
++    """
++    # Definimos el diccionario de contenido a almacenar
++    secciones = {}
++
++    # Extraemos el contenido del archivo README.md dentro del módulo
++    with open(os.path.join(modulo_path, "README.md"), 'r') as readme:
++        rd_content = readme.read()
++
++    # Dividimos el contenido en lineas diferentes y declaramos variables para los datos actuales
++    lineas = rd_content.split('\n')
++    curr_seccion = None
++    curr_content = []
++
++    # Iteramos linea por linea de texto verificando si una de ellas comienza con la notación de un sub header
++    for linea in lineas:
++        if linea.startswith('## '):
++            # Si lo fuese y estemos en una sección entonces la almacenamos dentro del diccionario de secciones
++            if curr_seccion:
++                secciones[curr_seccion] = '\n'.join(curr_content).strip()
++            # De forma predeterminada se asigna un valor a la sección actual y el contenido actual se reasigna
++            curr_seccion = linea[3:].strip()
++            curr_content = []
++        elif curr_seccion:
++            # Si no comenzase como subheader, entonces añadimos la nueva linea a nuestro contenido
++            curr_content.append(linea)
++
++    # Si terminamos de iterar en las lineas y aun seguimos en una sección entonces la asignamos
++    if curr_seccion:
++        secciones[curr_seccion] = '\n'.join(curr_content).strip()
++
++    return secciones
++
+ def write_markdown():
+     """
+     Por cada módulo, escribe docs/<módulo>.md con:
+-- 
+2.49.0
+
+
+From fce243cdb7a7579bc65a17194c17052258eb71b0 Mon Sep 17 00:00:00 2001
+From: bxcowo <a.flores.a@uni.pe>
+Date: Tue, 17 Jun 2025 17:14:29 -0500
+Subject: [PATCH 06/10] edit(script): Modify write_markdown to adapt with
+ parse_readme
+
+---
+ scripts/terraform_docs.py | 11 +++++++----
+ 1 file changed, 7 insertions(+), 4 deletions(-)
+
+diff --git a/scripts/terraform_docs.py b/scripts/terraform_docs.py
+index a9a09e4..2fa901b 100755
+--- a/scripts/terraform_docs.py
++++ b/scripts/terraform_docs.py
+@@ -259,9 +259,6 @@ def write_markdown():
+     for nombre in os.listdir(root):
+         modulo_path = os.path.join(root, nombre)
+ 
+-        # Descripción a realizarse por módulo (se espera una mejora en futuros avances)
+-        descripcion = "Descripción placeholder"
+-
+         # Obtención de información sobre variables en el módulo presente
+         parsed_variables = parse_variables(modulo_path)
+         filas_variables = "\n".join([f"| {var['name']} | {var['type']} | {var['default']} | {var['description']} |" for var in parsed_variables])
+@@ -274,6 +271,11 @@ def write_markdown():
+         parsed_recursos = parse_resources(modulo_path)
+         filas_recursos = "\n".join([f"{i+1}. \"{res['type']}\" \"{res['name']}\" " for i, res in enumerate(parsed_recursos)])
+ 
++        # Obtención de descripción y el ejemplo de uso en bash sobre los módulos dentro de sus archivos README.md
++        parsed_readme = parse_readme(modulo_path)
++        descripcion = parsed_readme['Descripción']
++        ejemplo_bash = parsed_readme['Ejemplo de uso']
++
+         # Creación y escritura de archivo Markdown en base al template y a los datos obtenidos
+         with open(f'{docs_ruta}/{nombre}.md', 'w') as doc:
+             contenido = doc_template.substitute(
+@@ -281,7 +283,8 @@ def write_markdown():
+                 descripcion = descripcion,
+                 filas_variables = filas_variables,
+                 filas_outputs = filas_outputs,
+-                filas_recursos = filas_recursos
++                filas_recursos = filas_recursos,
++                ejemplo_bash = ejemplo_bash
+             )
+             doc.write(contenido)
+ 
+-- 
+2.49.0
+
+
+From 149a8daa054b500a02074f036e638dadb8a5b5f7 Mon Sep 17 00:00:00 2001
+From: bxcowo <a.flores.a@uni.pe>
+Date: Tue, 17 Jun 2025 17:15:39 -0500
+Subject: [PATCH 07/10] edit(docs): Update docs markdown files with new
+ descriptions and bash scripts
+
+---
+ docs/compute.md    | 10 +++++++++-
+ docs/logging.md    | 11 ++++++++++-
+ docs/monitoring.md | 11 ++++++++++-
+ docs/network.md    | 11 ++++++++++-
+ docs/security.md   | 11 ++++++++++-
+ docs/storage.md    | 11 ++++++++++-
+ 6 files changed, 59 insertions(+), 6 deletions(-)
+
+diff --git a/docs/compute.md b/docs/compute.md
+index 3318fb2..c49b340 100644
+--- a/docs/compute.md
++++ b/docs/compute.md
+@@ -1,6 +1,6 @@
+ # Módulo compute
+ 
+-Descripción placeholder
++El siguiente módulo de Terraform se encarga de gestionar la configuración de recursos computacionales en la infraestructura como código. Se encarga de establecer y configurar instancias computacionales según el tipo especificado, distribuyéndolas a través de múltiples subredes para garantizar alta disponibilidad y redundancia. El módulo permite definir el tamaño de las instancias (pequeño, mediano, grande) y especificar las subredes donde serán desplegados los recursos. Utiliza un enfoque basado en hash para generar identificadores únicos y asegurar la consistencia en el despliegue. Es ideal para entornos que requieren escalabilidad y distribución geográfica de cargas de trabajo computacionales.
+ 
+ ## Tabla de variables:
+ | Nombre | Tipo | Default | Descripción |
+@@ -17,3 +17,11 @@ Descripción placeholder
+ 
+ ## Lista de recursos:
+ 1. "null_resource" "config_compute" 
++
++## Ejemplo de uso:
++```bash
++#!/bin/bash
++terraform apply -auto-approve \
++    -var 'tipo_instancia=mediano' \
++    -var 'ids_subred=["123", "456", "789"]'
++```
+diff --git a/docs/logging.md b/docs/logging.md
+index 70277e7..852f60e 100644
+--- a/docs/logging.md
++++ b/docs/logging.md
+@@ -1,6 +1,6 @@
+ # Módulo logging
+ 
+-Descripción placeholder
++A continuación se presenta un módulo de Terraform que gestiona la configuración completa del sistema de logging para la infraestructura. Se encarga de establecer políticas de retención de logs, definir niveles mínimos de registro y habilitar capacidades de auditoría según los requerimientos de cumplimiento. El módulo configura automáticamente grupos de logs diferenciados (aplicación, sistema, auditoría) basándose en las configuraciones establecidas. Calcula costos estimados de almacenamiento y proporciona flexibilidad para ajustar la retención de logs desde 1 hasta 365 días. Es fundamental para el monitoreo, debugging y cumplimiento de normativas en entornos productivos que requieren trazabilidad completa de eventos.
+ 
+ ## Tabla de variables:
+ | Nombre | Tipo | Default | Descripción |
+@@ -18,3 +18,12 @@ Descripción placeholder
+ 
+ ## Lista de recursos:
+ 1. "null_resource" "config_logging" 
++
++## Ejemplo de uso:
++```bash
++#!/bin/bash
++terraform apply -auto-approve \
++    -var 'dias_retencion_logs=60' \
++    -var 'nivel_log=WARN' \
++    -var 'permite_auditoria_logs=true'
++```
+diff --git a/docs/monitoring.md b/docs/monitoring.md
+index c8ef072..53d750f 100644
+--- a/docs/monitoring.md
++++ b/docs/monitoring.md
+@@ -1,6 +1,6 @@
+ # Módulo monitoring
+ 
+-Descripción placeholder
++El presente módulo de Terraform administra la configuración integral del sistema de monitoreo y alertas para la infraestructura. Se encarga de habilitar el monitoreo detallado de recursos críticos incluyendo CPU, memoria, almacenamiento y red, proporcionando alertas automáticas a través de email cuando se detectan anomalías. El módulo permite configurar períodos de retención de métricas flexibles entre 7 y 730 días, calculando automáticamente los costos asociados al monitoreo. Incluye validación de direcciones de email para garantizar la entrega correcta de notificaciones. Es esencial para mantener la salud operacional, detectar problemas proactivamente y asegurar la disponibilidad continua de servicios en entornos productivos.
+ 
+ ## Tabla de variables:
+ | Nombre | Tipo | Default | Descripción |
+@@ -18,3 +18,12 @@ Descripción placeholder
+ 
+ ## Lista de recursos:
+ 1. "null_resource" "config_monitoreo" 
++
++## Ejemplo de uso:
++```bash
++#!/bin/bash
++terraform apply -auto-approve \
++    -var 'permite_monitoreo=true' \
++    -var 'email_alertas=dummy@email.com' \
++    -var 'dias_retencion_metricas=180'
++```
+diff --git a/docs/network.md b/docs/network.md
+index 27f3eb5..6243fce 100644
+--- a/docs/network.md
++++ b/docs/network.md
+@@ -1,6 +1,6 @@
+ # Módulo network
+ 
+-Descripción placeholder
++El módulo descrito a continuación gestiona la configuración completa de la infraestructura de red en la nube. Se encarga de crear y configurar una VPC (Virtual Private Cloud) con su bloque CIDR correspondiente, estableciendo automáticamente subredes públicas y privadas distribuidas across múltiples zonas de disponibilidad para garantizar alta disponibilidad y redundancia. El módulo calcula dinámicamente la segmentación de subredes basándose en el número de zonas disponibles, creando una arquitectura de red escalable y bien distribuida. Incluye soporte para NAT Gateway que permite conectividad a internet desde subredes privadas. Es fundamental para establecer una base de red sólida y segura para toda la infraestructura.
+ 
+ ## Tabla de variables:
+ | Nombre | Tipo | Default | Descripción |
+@@ -18,3 +18,12 @@ Descripción placeholder
+ 
+ ## Lista de recursos:
+ 1. "null_resource" "red_config" 
++
++## Ejemplo de uso:
++```bash
++#!/bin/bash
++terraform apply -auto-approve \
++    -var 'vpc_cidr=10.2.0.0/16' \
++    -var 'zonas_disponibilidad=["USA", "Canada", "Mexico"]' \
++    -var 'permitir_nat_gateway=true'
++```
+diff --git a/docs/security.md b/docs/security.md
+index 6f9902c..5592bf5 100644
+--- a/docs/security.md
++++ b/docs/security.md
+@@ -1,6 +1,6 @@
+ # Módulo security
+ 
+-Descripción placeholder
++Este módulo presenta una implementación completa de Terraform para administrar la configuración integral de seguridad en toda la infraestructura. Se encarga de establecer políticas de seguridad diferenciadas por niveles (básico, estándar, alto, crítico), cada uno con controles específicos como autenticación multifactor, encriptación, logging de accesos y detección de intrusiones. El módulo gestiona la habilitación de encriptación para todos los recursos, define bloques CIDR permitidos para controlar el acceso de red, y implementa automáticamente las políticas de seguridad correspondientes al nivel seleccionado. Incluye detección de configuraciones de acceso abierto y genera identificadores únicos para garantizar la consistencia. Es esencial para mantener la postura de seguridad y cumplimiento normativo en entornos productivos.
+ 
+ ## Tabla de variables:
+ | Nombre | Tipo | Default | Descripción |
+@@ -18,3 +18,12 @@ Descripción placeholder
+ 
+ ## Lista de recursos:
+ 1. "null_resource" "config_seguridad" 
++
++## Ejemplo de uso:
++```bash
++#!/bin/bash
++terraform apply -auto-approve \
++    -var 'permite_encriptacion=true' \
++    -var 'bloques_CIDR_permitidos=["10.0.0.0/16", "172.16.0.0/12"]' \
++    -var 'nivel_seguridad=alto'
++```
+diff --git a/docs/storage.md b/docs/storage.md
+index 60ff4d9..995f2a6 100644
+--- a/docs/storage.md
++++ b/docs/storage.md
+@@ -1,6 +1,6 @@
+ # Módulo storage
+ 
+-Descripción placeholder
++El siguiente módulo de Terraform gestiona la configuración completa del sistema de almacenamiento para la infraestructura. Se encarga de establecer diferentes niveles de almacenamiento con características específicas de rendimiento, costo y IOPS según las necesidades del proyecto. El módulo administra estrategias de backup diferenciadas (básica e integral) basándose en los períodos de retención configurados, y proporciona capacidades de versionado para objetos almacenados. Define automáticamente tiers de almacenamiento con diferentes perfiles de desempeño y costo, permitiendo optimizar tanto la performance como los gastos operacionales. Es fundamental para garantizar la persistencia, disponibilidad y protección de datos críticos en entornos productivos que requieren diferentes niveles de servicio de almacenamiento.
+ 
+ ## Tabla de variables:
+ | Nombre | Tipo | Default | Descripción |
+@@ -18,3 +18,12 @@ Descripción placeholder
+ 
+ ## Lista de recursos:
+ 1. "null_resource" "config_almacenamiento" 
++
++## Ejemplo de uso:
++```bash
++#!/bin/bash
++terraform apply -auto-approve \
++    -var 'tipo_almacenamiento=uio' \
++    -var 'dias_backup=14' \
++    -var 'permite_versionado=true'
++```
+-- 
+2.49.0
+
+
+From c3b927ccd6d80543034c122cf4f292b7b8a0f085 Mon Sep 17 00:00:00 2001
+From: AlesxanDer1102 <diego.orrego.t@uni.pe>
+Date: Tue, 17 Jun 2025 18:16:16 -0500
+Subject: [PATCH 08/10] feat(scripts): Complete update docs to clean all
+ modules with terraform destroy
+
+---
+ scripts/update_docs.sh | 31 ++++++++++++++++++++++++-------
+ 1 file changed, 24 insertions(+), 7 deletions(-)
+
+diff --git a/scripts/update_docs.sh b/scripts/update_docs.sh
+index 72fc9d4..c646ed9 100644
+--- a/scripts/update_docs.sh
++++ b/scripts/update_docs.sh
+@@ -2,8 +2,8 @@
+ 
+ ROOT=$(pwd)
+ 
+-echo " Gneracndo documentacion y diagramas de los modulos de Terraform..."
+-
++echo " Generando documentacion y diagramas de los modulos de Terraform..."
++#Aplicar Terraform init y terraform apply a cada modulo, abortar si es que falla.
+ for modulo_dir in iac/*/; do 
+     if [ -d "$modulo_dir" ];then 
+         echo "Procesando modulo: $modulo_dir"
+@@ -23,11 +23,28 @@ for modulo_dir in iac/*/; do
+     echo "Carpeta $modulo_dir no es un directorio valido, omitiendo"
+     fi
+ done
+-
+-echo "Generando documentaci+on con terraform_docs.py"
++# Generar documentacion 
++echo "Generando documentacion con terraform_docs.py"
+ python3 scripts/terraform_docs.py
+-
+-echo "Gnerando diagrama de red con generar_diagrama.py"
++# Generar diagrama de red
++echo "Generando diagrama de red con generar_diagrama.py"
+ python3 scripts/generar_diagrama.py
+ 
+-echo "Generacion de documentacion completada."
+\ No newline at end of file
++# Limpiar de archivos realizando terraform destroy en cada modulo
++echo "Iniciando limpieza de recursos de cada modulo..."
++for modulo_dir in iac/*/; do
++    if [ -d "$modulo_dir" ]; then
++        echo "Destruyendo recursos en $modulo_dir"
++        cd "$modulo_dir" 
++
++        echo "Ejecutando terraform destroy --auto-approve en $modulo_dir"
++        if ! terraform destroy --auto-approve; then
++            echo "Error: terraform destroy falló en $modulo_dir"
++            exit 1
++        fi
++        cd "$ROOT"
++    else
++        echo "Carpeta $modulo_dir no es un directorio valido, omitiendo"
++    fi
++done
++echo "Limpieza de modulos completada"
+-- 
+2.49.0
+
+
+From c5911434618ba6c7102ad9bc577d190de3c15b9b Mon Sep 17 00:00:00 2001
+From: melissa <melissa.iman.n@uni.pe>
+Date: Wed, 18 Jun 2025 23:10:43 -0500
+Subject: [PATCH 09/10] feat(py): add auto generation of SVG in
+ generar_diagrama.py
+
+---
+ scripts/generar_diagrama.py | 59 +++++++++++++++++++++++++++++++++++--
+ 1 file changed, 56 insertions(+), 3 deletions(-)
+
+diff --git a/scripts/generar_diagrama.py b/scripts/generar_diagrama.py
+index b057f7b..a5b61a5 100755
+--- a/scripts/generar_diagrama.py
++++ b/scripts/generar_diagrama.py
+@@ -3,10 +3,13 @@
+ scripts/generar_diagrama.py
+ - Genera docs/diagrama_red.dot a partir de los .tfstate en cada módulo
+ - Colorea nodos según tipo de módulo y etiqueta dependencias
++- Convierte automáticamente el archivo DOT a SVG usando Graphviz
+ """
+ import os
+ import json
+ import re
++import subprocess
++import sys
+ 
+ def get_available_colors():
+     """
+@@ -89,15 +92,65 @@ def generate_dot():
+     lineas.append("}")
+     return "\n".join(lineas)
+ 
++def generate_svg_from_dot(dot_file_path, svg_file_path):
++    """
++    Convierte un archivo DOT a SVG usando el comando dot de Graphviz.
++    
++    Args:
++        dot_file_path (str): Ruta al archivo DOT de entrada
++        svg_file_path (str): Ruta al archivo SVG de salida
++    
++    Returns:
++        bool: True si la conversión fue exitosa, False en caso contrario
++    """
++    try:
++        # Verificar que el archivo DOT existe
++        if not os.path.isfile(dot_file_path):
++            print(f"Error: El archivo DOT {dot_file_path} no existe")
++            return False
++        
++        # Ejecutar comando dot para generar SVG
++        cmd = ["dot", "-Tsvg", dot_file_path, "-o", svg_file_path]
++        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
++        
++        # Verificar que el archivo SVG se creó correctamente
++        if os.path.isfile(svg_file_path):
++            print(f"Diagrama SVG generado exitosamente en {svg_file_path}")
++            return True
++        else:
++            print(f"Error: No se pudo crear el archivo SVG {svg_file_path}")
++            return False
++            
++    except subprocess.CalledProcessError as e:
++        print(f"Error ejecutando comando dot: {e}")
++        print(f"stderr: {e.stderr}")
++        return False
++    except FileNotFoundError:
++        print("Error: comando 'dot' no encontrado. Asegúrese de que Graphviz esté instalado")
++        print("En sistemas Ubuntu/Debian: sudo apt-get install graphviz")
++        return False
++    except Exception as e:
++        print(f"Error inesperado al generar SVG: {e}")
++        return False
+ 
+ def main():
+     
+     dot= generate_dot()
+     os.makedirs("docs", exist_ok=True)
+-    output="docs/diagrama_red.dot"
+-    with open(output, 'w', encoding='utf-8') as f:
++    dot_output="docs/diagrama_red.dot"
++    svg_output="docs/diagrama_red.svg"
++    
++    # Escribir archivo DOT
++    with open(dot_output, 'w', encoding='utf-8') as f:
+         f.write(dot)
+-    print(f"Diagrama generado en {output}")
++    print(f"Diagrama DOT generado en {dot_output}")
++    
++    # Generar archivo SVG
++    if generate_svg_from_dot(dot_output, svg_output):
++        print(f"Proceso completado: archivos DOT y SVG disponibles en docs/")
++    else:
++        print("Advertencia: El archivo DOT se generó pero falló la conversión a SVG")
++        sys.exit(1)
+ 
+ if __name__ == "__main__":
+     main() 
+\ No newline at end of file
+-- 
+2.49.0
+
+
+From dec71efd3ce24e66972a7fbc281357091539ac2a Mon Sep 17 00:00:00 2001
+From: melissa <melissa.iman.n@uni.pe>
+Date: Wed, 18 Jun 2025 23:13:02 -0500
+Subject: [PATCH 10/10] docs(svg): add diagrama_red.svg that was generated
+
+---
+ docs/diagrama_red.svg | 62 +++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 62 insertions(+)
+ create mode 100644 docs/diagrama_red.svg
+
+diff --git a/docs/diagrama_red.svg b/docs/diagrama_red.svg
+new file mode 100644
+index 0000000..a606c87
+--- /dev/null
++++ b/docs/diagrama_red.svg
+@@ -0,0 +1,62 @@
++<?xml version="1.0" encoding="UTF-8" standalone="no"?>
++<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
++ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
++<!-- Generated by graphviz version 12.2.1 (0)
++ -->
++<!-- Title: G Pages: 1 -->
++<svg width="631pt" height="314pt"
++ viewBox="0.00 0.00 630.99 314.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
++<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 310)">
++<title>G</title>
++<polygon fill="white" stroke="none" points="-4,4 -4,-310 626.99,-310 626.99,4 -4,4"/>
++<!-- null_resource.config_almacenamiento -->
++<g id="node1" class="node">
++<title>null_resource.config_almacenamiento</title>
++<ellipse fill="none" stroke="yellow" cx="142.31" cy="-18" rx="142.31" ry="18"/>
++<text text-anchor="middle" x="142.31" y="-11.82" font-family="Times,serif" font-size="14.00">null_resource.config_almacenamiento</text>
++</g>
++<!-- terraform_remote_state.network -->
++<g id="node2" class="node">
++<title>terraform_remote_state.network</title>
++<ellipse fill="none" stroke="purple" cx="142.31" cy="-72" rx="123.23" ry="18"/>
++<text text-anchor="middle" x="142.31" y="-65.83" font-family="Times,serif" font-size="14.00">terraform_remote_state.network</text>
++</g>
++<!-- null_resource.config_seguridad -->
++<g id="node3" class="node">
++<title>null_resource.config_seguridad</title>
++<ellipse fill="none" stroke="purple" cx="504.06" cy="-72" rx="118.94" ry="18"/>
++<text text-anchor="middle" x="504.06" y="-65.83" font-family="Times,serif" font-size="14.00">null_resource.config_seguridad</text>
++</g>
++<!-- terraform_remote_state.network&#45;&gt;null_resource.config_seguridad -->
++<g id="edge1" class="edge">
++<title>terraform_remote_state.network&#45;&gt;null_resource.config_seguridad</title>
++<path fill="none" stroke="black" d="M265.86,-72C300.58,-72 338.49,-72 373.61,-72"/>
++<polygon fill="black" stroke="black" points="373.4,-75.5 383.4,-72 373.4,-68.5 373.4,-75.5"/>
++<text text-anchor="middle" x="334.87" y="-72.95" font-family="Times,serif" font-size="14.00">depends_on</text>
++</g>
++<!-- null_resource.config_logging -->
++<g id="node4" class="node">
++<title>null_resource.config_logging</title>
++<ellipse fill="none" stroke="green" cx="142.31" cy="-126" rx="111.3" ry="18"/>
++<text text-anchor="middle" x="142.31" y="-119.83" font-family="Times,serif" font-size="14.00">null_resource.config_logging</text>
++</g>
++<!-- null_resource.config_monitoreo -->
++<g id="node5" class="node">
++<title>null_resource.config_monitoreo</title>
++<ellipse fill="none" stroke="orange" cx="142.31" cy="-180" rx="120.84" ry="18"/>
++<text text-anchor="middle" x="142.31" y="-173.82" font-family="Times,serif" font-size="14.00">null_resource.config_monitoreo</text>
++</g>
++<!-- null_resource.config_compute -->
++<g id="node6" class="node">
++<title>null_resource.config_compute</title>
++<ellipse fill="none" stroke="blue" cx="142.31" cy="-234" rx="114.64" ry="18"/>
++<text text-anchor="middle" x="142.31" y="-227.82" font-family="Times,serif" font-size="14.00">null_resource.config_compute</text>
++</g>
++<!-- null_resource.red_config -->
++<g id="node7" class="node">
++<title>null_resource.red_config</title>
++<ellipse fill="none" stroke="red" cx="142.31" cy="-288" rx="96.04" ry="18"/>
++<text text-anchor="middle" x="142.31" y="-281.82" font-family="Times,serif" font-size="14.00">null_resource.red_config</text>
++</g>
++</g>
++</svg>
+-- 
+2.49.0
+
