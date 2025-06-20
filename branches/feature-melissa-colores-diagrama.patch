@@ -1,0 +1,223 @@
+From 4102b6896102e59f9a1390c459bb3be7adcfb16f Mon Sep 17 00:00:00 2001
+From: melissa <melissa.iman.n@uni.pe>
+Date: Tue, 17 Jun 2025 12:56:43 -0500
+Subject: [PATCH 1/2] feat(diagram): add module colors and dependency labels to
+ DOT generation
+
+---
+ docs/diagrama_red.dot       | 11 +++++++++++
+ scripts/generar_diagrama.py | 29 ++++++++++++++++++++++++++---
+ 2 files changed, 37 insertions(+), 3 deletions(-)
+ create mode 100644 docs/diagrama_red.dot
+
+diff --git a/docs/diagrama_red.dot b/docs/diagrama_red.dot
+new file mode 100644
+index 0000000..5caed55
+--- /dev/null
++++ b/docs/diagrama_red.dot
+@@ -0,0 +1,11 @@
++digraph G {
++rankdir=LR
++    "null_resource.config_almacenamiento" [label="null_resource.config_almacenamiento", color=orange]
++    "terraform_remote_state.network" [label="terraform_remote_state.network", color=red]
++    "null_resource.config_seguridad" [label="null_resource.config_seguridad", color=red]
++    "terraform_remote_state.network" -> "null_resource.config_seguridad" [label="depends_on"]
++    "null_resource.config_logging" [label="null_resource.config_logging", color=purple]
++    "null_resource.config_monitoreo" [label="null_resource.config_monitoreo", color=yellow]
++    "null_resource.config_compute" [label="null_resource.config_compute", color=green]
++    "null_resource.red_config" [label="null_resource.red_config", color=blue]
++}
+\ No newline at end of file
+diff --git a/scripts/generar_diagrama.py b/scripts/generar_diagrama.py
+index dfc1c48..51986a9 100755
+--- a/scripts/generar_diagrama.py
++++ b/scripts/generar_diagrama.py
+@@ -2,15 +2,30 @@
+ """
+ scripts/generar_diagrama.py
+ - Genera docs/diagrama_red.dot a partir de los .tfstate en cada módulo
++- Colorea nodos según tipo de módulo y etiqueta dependencias
+ """
+ import os
+ import json
+ import re
+ 
++def get_module_color(module_name):
++    """
++    Retorna el color DOT apropiado para cada tipo de módulo.
++    """
++    color_map = {
++        'network': 'blue',
++        'compute': 'green', 
++        'storage': 'orange',
++        'security': 'red',
++        'logging': 'purple',
++        'monitoring': 'yellow'
++    }
++    return color_map.get(module_name, 'gray')
++
+ def generate_dot():
+     """
+     Lee terraform.tfstate de cada módulo (iac/<módulo>/terraform.tfstate)
+-    y extrae dependencies para formar un grafo DOT.
++    y extrae dependencies para formar un grafo DOT con colores y etiquetas.
+     """
+     lineas=["digraph G {","rankdir=LR"]
+ 
+@@ -21,6 +36,8 @@ def generate_dot():
+         lineas.append("}")
+         return "\n".join(lineas)
+ 
++    recurso_a_modulo = {}
++
+     for modulo in os.listdir(root):
+         modulo_dir=os.path.join(root, modulo)
+         tfstate=os.path.join(modulo_dir, "terraform.tfstate")
+@@ -34,11 +51,16 @@ def generate_dot():
+         except (IOError, json.JSONDecodeError):
+             continue
+ 
++        color = get_module_color(modulo)
++
+         for recurso in data.get('resources', []):
+             type= recurso.get('type')
+             name = recurso.get('name')
+             id_recurso = f"{type}.{name}"
+-            lineas.append(f'    "{id_recurso}" [label="{type}.{name}"]')
++            
++            recurso_a_modulo[id_recurso] = modulo
++            
++            lineas.append(f'    "{id_recurso}" [label="{type}.{name}", color={color}]')
+ 
+             for instance in recurso.get('instances', []):
+                 for dep in instance.get('dependencies', []):
+@@ -46,7 +68,8 @@ def generate_dot():
+                     if not match:
+                         continue
+                     dep_id = match.group(1)
+-                    lineas.append(f'    "{dep_id}" -> "{id_recurso}"')
++                    
++                    lineas.append(f'    "{dep_id}" -> "{id_recurso}" [label="depends_on"]')
+ 
+     lineas.append("}")
+     return "\n".join(lineas)
+-- 
+2.49.0
+
+
+From 83e8f0ddf5928736ce03ad100d4e86e7dcd521ad Mon Sep 17 00:00:00 2001
+From: melissa <melissa.iman.n@uni.pe>
+Date: Tue, 17 Jun 2025 14:47:35 -0500
+Subject: [PATCH 2/2] refactor(diagram): implement cyclic color assignment for
+ module scalability
+
+---
+ docs/diagrama_red.dot       | 14 +++++------
+ scripts/generar_diagrama.py | 47 ++++++++++++++++++++++++-------------
+ 2 files changed, 38 insertions(+), 23 deletions(-)
+
+diff --git a/docs/diagrama_red.dot b/docs/diagrama_red.dot
+index 5caed55..b0eb13a 100644
+--- a/docs/diagrama_red.dot
++++ b/docs/diagrama_red.dot
+@@ -1,11 +1,11 @@
+ digraph G {
+ rankdir=LR
+-    "null_resource.config_almacenamiento" [label="null_resource.config_almacenamiento", color=orange]
+-    "terraform_remote_state.network" [label="terraform_remote_state.network", color=red]
+-    "null_resource.config_seguridad" [label="null_resource.config_seguridad", color=red]
++    "null_resource.config_almacenamiento" [label="null_resource.config_almacenamiento", color=yellow]
++    "terraform_remote_state.network" [label="terraform_remote_state.network", color=purple]
++    "null_resource.config_seguridad" [label="null_resource.config_seguridad", color=purple]
+     "terraform_remote_state.network" -> "null_resource.config_seguridad" [label="depends_on"]
+-    "null_resource.config_logging" [label="null_resource.config_logging", color=purple]
+-    "null_resource.config_monitoreo" [label="null_resource.config_monitoreo", color=yellow]
+-    "null_resource.config_compute" [label="null_resource.config_compute", color=green]
+-    "null_resource.red_config" [label="null_resource.red_config", color=blue]
++    "null_resource.config_logging" [label="null_resource.config_logging", color=green]
++    "null_resource.config_monitoreo" [label="null_resource.config_monitoreo", color=orange]
++    "null_resource.config_compute" [label="null_resource.config_compute", color=blue]
++    "null_resource.red_config" [label="null_resource.red_config", color=red]
+ }
+\ No newline at end of file
+diff --git a/scripts/generar_diagrama.py b/scripts/generar_diagrama.py
+index 51986a9..b057f7b 100755
+--- a/scripts/generar_diagrama.py
++++ b/scripts/generar_diagrama.py
+@@ -8,19 +8,27 @@ import os
+ import json
+ import re
+ 
+-def get_module_color(module_name):
++def get_available_colors():
+     """
+-    Retorna el color DOT apropiado para cada tipo de módulo.
++    Retorna lista de colores disponibles para asignación a módulos.
++
++    """
++    return ['blue', 'green', 'orange', 'red', 'purple', 'yellow', 
++            'cyan', 'magenta', 'brown', 'pink', 'gray', 'darkgreen']
++
++def assign_module_colors(modulos):
++    """
++    Asigna colores de manera cíclica a una lista de módulos.
++    
+     """
+-    color_map = {
+-        'network': 'blue',
+-        'compute': 'green', 
+-        'storage': 'orange',
+-        'security': 'red',
+-        'logging': 'purple',
+-        'monitoring': 'yellow'
+-    }
+-    return color_map.get(module_name, 'gray')
++    colores_disponibles = get_available_colors()
++    mapeo_colores = {}
++    
++    for index, modulo in enumerate(sorted(modulos)):
++        color_index = index % len(colores_disponibles)
++        mapeo_colores[modulo] = colores_disponibles[color_index]
++    
++    return mapeo_colores
+ 
+ def generate_dot():
+     """
+@@ -36,22 +44,29 @@ def generate_dot():
+         lineas.append("}")
+         return "\n".join(lineas)
+ 
++    # Identificar módulos disponibles
++    modulos_disponibles = []
++    for item in os.listdir(root):
++        modulo_dir = os.path.join(root, item)
++        tfstate = os.path.join(modulo_dir, "terraform.tfstate")
++        if os.path.isfile(tfstate):
++            modulos_disponibles.append(item)
++    
++    # Asignar colores
++    mapeo_colores = assign_module_colors(modulos_disponibles)
+     recurso_a_modulo = {}
+ 
+-    for modulo in os.listdir(root):
++    for modulo in modulos_disponibles:
+         modulo_dir=os.path.join(root, modulo)
+         tfstate=os.path.join(modulo_dir, "terraform.tfstate")
+ 
+-        if not os.path.isfile(tfstate):
+-            continue
+-
+         try:
+             with open(tfstate, 'r', encoding='utf-8') as f:
+                 data = json.load(f)
+         except (IOError, json.JSONDecodeError):
+             continue
+ 
+-        color = get_module_color(modulo)
++        color = mapeo_colores[modulo]
+ 
+         for recurso in data.get('resources', []):
+             type= recurso.get('type')
+-- 
+2.49.0
+
